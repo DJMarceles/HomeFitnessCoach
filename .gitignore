@@ -1,0 +1,11 @@
+node_modules/
+dist/
+output/
+tasks/
+AGENTS.md
+.env*
+!.env.example
+.playwright-cli/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
