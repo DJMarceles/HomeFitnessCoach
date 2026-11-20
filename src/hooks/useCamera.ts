@@ -1,4 +1,4 @@
-import { RefObject, useCallback, useEffect, useState } from "react";
+import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 export type CameraStatus = "idle" | "requesting" | "ready" | "blocked";
 
@@ -26,7 +26,8 @@ interface CameraState {
   stream: MediaStream | null;
   zoom: CameraZoomState;
   setZoom: (value: number) => Promise<void>;
-  startCamera: () => Promise<void>;
+  devices: MediaDeviceInfo[];
+  startCamera: (deviceId?: string) => Promise<boolean>;
   stopCamera: () => void;
 }
 
@@ -45,12 +46,15 @@ export function useCamera(videoRef: RefObject<HTMLVideoElement | null>): CameraS
   const [error, setError] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [zoom, setZoomState] = useState<CameraZoomState>(DEFAULT_ZOOM);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const currentStream = useRef<MediaStream | null>(null);
+  const generation = useRef(0);
 
   const stopCamera = useCallback(() => {
-    setStream((current) => {
-      current?.getTracks().forEach((track) => track.stop());
-      return null;
-    });
+    generation.current++;
+    currentStream.current?.getTracks().forEach(track => track.stop());
+    currentStream.current = null;
+    setStream(null);
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -60,26 +64,41 @@ export function useCamera(videoRef: RefObject<HTMLVideoElement | null>): CameraS
     setZoomState(DEFAULT_ZOOM);
   }, [videoRef]);
 
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async (deviceId?: string) => {
+    stopCamera();
+    const request = generation.current;
     if (!navigator.mediaDevices?.getUserMedia) {
       setStatus("blocked");
       setError("Deze browser ondersteunt geen camera-toegang.");
-      return;
+      return false;
     }
 
     setStatus("requesting");
     setError(null);
 
     try {
-      const nextStream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+      const nextStream = await navigator.mediaDevices.getUserMedia(deviceId
+        ? { audio: false, video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } }
+        : CAMERA_CONSTRAINTS);
+      if (generation.current !== request) { nextStream.getTracks().forEach(t => t.stop()); return false; }
+      currentStream.current = nextStream;
+      nextStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (generation.current === request) { stopCamera(); setError("Camera losgekoppeld."); }
+      }, { once: true });
       setStream(nextStream);
       setZoomState(getZoomState(nextStream));
       setStatus("ready");
+      void navigator.mediaDevices.enumerateDevices().then(list => {
+        if (generation.current === request) setDevices(list.filter(d => d.kind === "videoinput" && d.deviceId));
+      }).catch(() => {});
+      return true;
     } catch (caughtError) {
+      if (generation.current !== request) return false;
       setStatus("blocked");
       setError(getCameraErrorMessage(caughtError));
+      return false;
     }
-  }, []);
+  }, [stopCamera]);
 
   const setZoom = useCallback(
     async (value: number) => {
@@ -94,7 +113,10 @@ export function useCamera(videoRef: RefObject<HTMLVideoElement | null>): CameraS
 
       try {
         await applyTrackZoom(track, nextValue);
-        setZoomState((current) => ({ ...current, value: nextValue, error: null }));
+        if (stream !== currentStream.current) return;
+        const applied = getZoomState(stream!);
+        setZoomState({ ...applied, error: Math.abs(applied.value - nextValue) > zoom.step / 2
+          ? "De camera heeft deze zoom niet toegepast." : null });
       } catch (caughtError) {
         setZoomState((current) => ({ ...current, error: getCameraErrorMessage(caughtError) }));
       }
@@ -108,12 +130,12 @@ export function useCamera(videoRef: RefObject<HTMLVideoElement | null>): CameraS
     }
 
     videoRef.current.srcObject = stream;
-    void videoRef.current.play();
+    void videoRef.current.play().catch(() => {});
   }, [stream, videoRef]);
 
   useEffect(() => stopCamera, [stopCamera]);
 
-  return { status, error, stream, zoom, setZoom, startCamera, stopCamera };
+  return { status, error, stream, zoom, devices, setZoom, startCamera, stopCamera };
 }
 
 function getZoomState(stream: MediaStream): CameraZoomState {
@@ -122,7 +144,7 @@ function getZoomState(stream: MediaStream): CameraZoomState {
   const settings = track?.getSettings?.() as ZoomSettings | undefined;
   const zoomCapability = capabilities?.zoom;
 
-  if (!zoomCapability) {
+  if (!zoomCapability || zoomCapability.max <= zoomCapability.min || typeof settings?.zoom !== "number") {
     return DEFAULT_ZOOM;
   }
 

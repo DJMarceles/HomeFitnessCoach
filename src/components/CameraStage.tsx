@@ -1,13 +1,16 @@
-import { Camera, Maximize2, Minimize2, ShieldCheck, Video, Zap, ZoomIn, ZoomOut } from "lucide-react";
+import { Camera, CameraOff, Maximize2, Minimize2, ShieldCheck, Video, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import type { RefObject } from "react";
 import type { CameraStatus, CameraZoomState } from "../hooks/useCamera";
 import type { PoseAnalysis } from "../lib/pose/poseTypes";
 import { PoseOverlay } from "./PoseOverlay";
-import { StatusPill } from "./StatusPill";
 
 export type VideoFitMode = "cover" | "contain";
 
 interface CameraStageProps {
+  devices: MediaDeviceInfo[];
+  deviceId: string;
+  onDeviceChange: (id: string) => void;
+  counter: string;
   analysis: PoseAnalysis | null;
   cameraStatus: CameraStatus;
   cameraError: string | null;
@@ -19,12 +22,14 @@ interface CameraStageProps {
   videoRef: RefObject<HTMLVideoElement | null>;
   onCameraZoomChange: (value: number) => void;
   onStartCamera: () => void;
+  onStopCamera: () => void;
   onToggleDemo: () => void;
   onToggleVideoFit: () => void;
 }
 
 export function CameraStage(props: CameraStageProps) {
-  const level = props.analysis?.level ?? "idle";
+  const status = props.analysis?.framingHint ?? (props.analysis?.level === "idle" ? "Breng je lichaam in beeld." :
+    props.analysis ? "In beeld" : props.poseStatus);
 
   return (
     <section className="camera-stage" aria-label="Live houding">
@@ -33,16 +38,16 @@ export function CameraStage(props: CameraStageProps) {
           <p className="section-label">Live houding</p>
           <h1>VormCoach</h1>
         </div>
-        <StatusPill level={level} />
+        <span className="tracking-status">{status}</span>
       </div>
 
       <div className={getVideoShellClassName(props.demoMode, props.videoFitMode)}>
         <video className="video-preview" muted playsInline ref={props.videoRef} />
-        <PoseOverlay fitMode={props.videoFitMode} landmarks={props.landmarks} level={level} videoRef={props.videoRef} />
-        <StageHud analysis={props.analysis} demoMode={props.demoMode} poseStatus={props.poseStatus} />
-        <CameraTools {...props} />
+        <PoseOverlay fitMode={props.videoFitMode} landmarks={props.landmarks} level="good" videoRef={props.videoRef} />
+        {(props.demoMode || props.cameraStatus === "ready") && <StageHud counter={props.counter} demoMode={props.demoMode} poseStatus={props.poseStatus} />}
         {props.cameraStatus !== "ready" && !props.demoMode ? <CameraEmptyState {...props} /> : null}
       </div>
+      <CameraTools {...props} />
     </section>
   );
 }
@@ -51,7 +56,7 @@ function getVideoShellClassName(demoMode: boolean, fitMode: VideoFitMode): strin
   return ["video-shell", demoMode ? "is-demo" : "", fitMode === "contain" ? "is-contained" : ""].filter(Boolean).join(" ");
 }
 
-function StageHud({ analysis, demoMode, poseStatus }: Pick<CameraStageProps, "analysis" | "demoMode" | "poseStatus">) {
+function StageHud({ counter, demoMode, poseStatus }: Pick<CameraStageProps, "counter" | "demoMode" | "poseStatus">) {
   return (
     <div className="stage-hud">
       <span>
@@ -60,9 +65,9 @@ function StageHud({ analysis, demoMode, poseStatus }: Pick<CameraStageProps, "an
       </span>
       <span>
         <Zap size={15} aria-hidden="true" />
-        {demoMode ? "Demo-analyse" : poseStatus}
+        {demoMode ? "Squatdemo" : poseStatus}
       </span>
-      <strong>{analysis ? `${analysis.score}%` : "0%"}</strong>
+      <strong>{counter}</strong>
     </div>
   );
 }
@@ -81,7 +86,7 @@ function CameraEmptyState(props: CameraStageProps) {
           Camera starten
         </button>
         <button className="ghost-button" onClick={props.onToggleDemo} type="button">
-          Demo-modus
+          Squatdemo
         </button>
       </div>
     </div>
@@ -105,6 +110,12 @@ function CameraTools(props: CameraStageProps) {
         <span>{props.videoFitMode === "contain" ? "Vullen" : "Volledig beeld"}</span>
       </button>
       <ZoomControl zoom={props.cameraZoom} onZoomChange={props.onCameraZoomChange} />
+      <button className="camera-tool-button" onClick={props.onStopCamera} title="Camera uitzetten" aria-label="Camera uitzetten" type="button"><CameraOff size={16}/></button>
+      {props.devices.length > 1 && <select aria-label="Kies camera" value={props.deviceId}
+        onChange={e => props.onDeviceChange(e.target.value)}>
+        {props.devices.map((d,i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${i+1}`}</option>)}
+      </select>}
+      {props.cameraZoom.error && <span role="status">{props.cameraZoom.error}</span>}
     </div>
   );
 }

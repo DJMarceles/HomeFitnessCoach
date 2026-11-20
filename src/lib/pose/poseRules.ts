@@ -1,5 +1,6 @@
 import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 import { getExerciseById } from "../../data/exercises";
+import { hasSpecificRules, pilotPose } from "./pilot";
 import type { Correction, ExerciseId, FeedbackLevel, PoseAnalysis } from "./poseTypes";
 import { angleAtPoint, angleFromVertical, averageVisibility, clamp, midpoint, roundMetric } from "./geometry";
 
@@ -49,14 +50,25 @@ export function analyzePose(
   exerciseId: ExerciseId,
   landmarks: NormalizedLandmark[],
   timestamp = performance.now(),
+  aspect = 1,
 ): PoseAnalysis {
+  if (hasSpecificRules(exerciseId)) return pilotPose(exerciseId, landmarks, timestamp, aspect);
   const confidence = averageVisibility(landmarks, CORE_POINTS);
 
   if (confidence < 0.45 || landmarks.length < 29) {
     return createCameraAnalysis(exerciseId, landmarks, confidence, timestamp);
   }
 
-  const analysis = getExerciseAnalysis(exerciseId, landmarks);
+  const profile = getExerciseById(exerciseId).profile;
+  const pairs: [number, string][] = [[11,"schouders"],[23,"heupen"],[25,"knieën"],[27,"enkels"]];
+  if (["plank","dip","pushup","cardio"].includes(profile)) pairs.push([15,"polsen"]);
+  if (["dip","pushup"].includes(profile)) pairs.push([13,"ellebogen"]);
+  for (const [i,name] of pairs) {
+    if (![landmarks[i],landmarks[i+1]].every(p => p && p.visibility >= 0.48 && p.x > 0 && p.x < 1 && p.y > 0 && p.y < 1)) {
+      return { ...createCameraAnalysis(exerciseId, landmarks, confidence, timestamp), framingHint: `Breng je ${name} in beeld.` };
+    }
+  }
+  const analysis = getExerciseAnalysis(exerciseId, landmarks.map(p => ({ ...p, x: p.x * aspect })));
   const score = scoreCorrections(analysis.corrections, confidence);
 
   return {
@@ -68,6 +80,7 @@ export function analyzePose(
     metrics: analysis.metrics,
     corrections: analysis.corrections.length > 0 ? analysis.corrections : [GOOD_CORRECTION],
     repSignal: analysis.repSignal,
+    assessable: false,
     timestamp,
   };
 }

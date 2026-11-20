@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), ttsProxyPlugin(loadEnv(mode, process.cwd(), ""))],
   server: {
     port: 5173,
+    fs: { deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/private-pilot/**"] },
   },
 }));
 

@@ -287,11 +287,8 @@ button {
 .camera-tools {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  position: absolute;
-  right: 14px;
-  top: 14px;
-  z-index: 3;
 }
 
 .camera-tool-button,
@@ -733,7 +730,7 @@ button {
 .session-summary {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   padding: 12px;
 }
 
@@ -866,3 +863,6 @@ button {
     width: 100%;
   }
 }
+.tracking-status { max-width: 55%; text-align: right; font-size: 0.85rem; }
+.hold-target { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; }
+.camera-tools select, .hold-target select { max-width: 100%; font: inherit; font-size: 0.85rem; }

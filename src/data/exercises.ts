@@ -102,6 +102,10 @@ function makeExercise(
   focus: string,
   camera: CameraPlacement,
 ): ExerciseConfig {
+  if (["squat", "reverse-lunge", "split-squat", "wall-sit"].includes(id)) {
+    camera = { ...camera, position: "Naast je, in zijaanzicht.", framing: "Schouder, heup, knie en enkel aan dezelfde kant zichtbaar." };
+  }
+  if (id === "side-plank") camera = { ...camera, position: "Naast de lange kant van je mat, gericht op je borst.", framing: "Beide schouders, steunelleboog, heupen en voeten zichtbaar." };
   return {
     id,
     label,

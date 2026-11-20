@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "pilot:report": "node validation/report.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
+    "@mediapipe/tasks-vision": "0.10.35",
     "@vitejs/plugin-react": "^5.1.2",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
@@ -17,6 +19,7 @@
     "vite": "^7.3.0"
   },
   "devDependencies": {
+    "esbuild": "0.27.7",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.9.0"

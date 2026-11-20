@@ -12,6 +12,7 @@ import { usePoseLandmarker } from "./hooks/usePoseLandmarker";
 import { useSessionStats } from "./hooks/useSessionStats";
 import { createDemoLandmarks } from "./lib/pose/demoPose";
 import { analyzePose } from "./lib/pose/poseRules";
+import { hasSpecificRules, isHold } from "./lib/pose/pilot";
 import type { ExerciseId, PoseAnalysis, SessionStats } from "./lib/pose/poseTypes";
 import { buildSetFeedback, type SetFeedback } from "./lib/pose/setFeedback";
 import { useVoiceCoach } from "./lib/voice/useVoiceCoach";
@@ -19,6 +20,11 @@ import { useCloudVoiceStatus, type CloudVoiceStatus } from "./lib/voice/useCloud
 import { useVoiceOptions, type VoiceOption } from "./lib/voice/useVoiceOptions";
 
 interface TrainingController {
+  holdTarget: number;
+  onHoldTarget: (seconds: number) => void;
+  devices: MediaDeviceInfo[];
+  deviceId: string;
+  onDeviceChange: (id: string) => void;
   analysis: PoseAnalysis | null;
   cameraError: string | null;
   cameraStatus: ReturnType<typeof useCamera>["status"];
@@ -43,6 +49,7 @@ interface TrainingController {
   onReset: () => void;
   onStart: () => void;
   onStartCamera: () => void;
+  onStopCamera: () => void;
   onPlaySetFeedback: () => void;
   onTestVoice: () => void;
   onToggleDemo: () => void;
@@ -69,8 +76,9 @@ function TrainingWorkspace({ controller }: { controller: TrainingController }) {
       <div className="training-grid">
         <TrainingMain controller={controller} />
         <AnalysisPanel
-          analysis={controller.analysis}
           exercise={controller.exercise}
+          holdTarget={controller.holdTarget}
+          onHoldTarget={controller.onHoldTarget}
           onTestVoice={controller.onTestVoice}
           onPlaySetFeedback={controller.onPlaySetFeedback}
           onVoiceChange={controller.onVoiceChange}
@@ -92,11 +100,16 @@ function TrainingMain({ controller }: { controller: TrainingController }) {
         analysis={controller.analysis}
         cameraError={controller.cameraError}
         cameraStatus={controller.cameraStatus}
+        devices={controller.devices}
+        deviceId={controller.deviceId}
+        onDeviceChange={controller.onDeviceChange}
+        counter={isHold(controller.exercise.id) ? `${controller.stats.heldSeconds} / ${controller.holdTarget} s` : `${controller.stats.reps} reps`}
         cameraZoom={controller.cameraZoom}
         demoMode={controller.demoMode}
         landmarks={controller.landmarks}
         onCameraZoomChange={controller.onCameraZoomChange}
         onStartCamera={controller.onStartCamera}
+        onStopCamera={controller.onStopCamera}
         onToggleVideoFit={controller.onToggleVideoFit}
         onToggleDemo={controller.onToggleDemo}
         poseStatus={controller.poseStatus}
@@ -114,7 +127,7 @@ function TrainingMain({ controller }: { controller: TrainingController }) {
         selectedExerciseId={controller.selectedExerciseId}
         voiceEnabled={controller.voiceEnabled}
       />
-      <SessionSummary stats={controller.stats} />
+      <SessionSummary stats={controller.stats} hold={isHold(controller.exercise.id)} />
     </div>
   );
 }
@@ -160,6 +173,7 @@ function useTrainingController(): TrainingController {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState("");
   const [demoMode, setDemoMode] = useState(false);
+  const [holdTarget, setHoldTarget] = useState(20);
   const [demoLandmarks, setDemoLandmarks] = useState<NormalizedLandmark[]>([]);
   const [videoFitMode, setVideoFitMode] = useState<VideoFitMode>("contain");
   const cloudVoiceStatus = useCloudVoiceStatus();
@@ -167,11 +181,13 @@ function useTrainingController(): TrainingController {
   const camera = useCamera(videoRef);
   const pose = usePoseLandmarker({ enabled: camera.status === "ready" && !demoMode, videoRef });
   const landmarks = demoMode ? demoLandmarks : pose.landmarks;
-  const analysis = useCurrentAnalysis(selectedExerciseId, landmarks);
+  const analysis = useMemo(() => analyzePose(selectedExerciseId, landmarks,
+    demoMode ? performance.now() : pose.timestamp, demoMode ? 1 : pose.aspect),
+    [selectedExerciseId, landmarks, demoMode, pose.timestamp, pose.aspect]);
   const exercise = getExerciseById(selectedExerciseId);
   const voice = useVoiceCoach(voiceEnabled, selectedVoiceURI);
-  const { stats, resetStats } = useSessionStats(sessionActive, analysis);
-  const setFeedback = useMemo(() => buildSetFeedback(stats, exercise.label), [exercise.label, stats]);
+  const { stats, resetStats } = useSessionStats(sessionActive, analysis, holdTarget);
+  const setFeedback = useMemo(() => buildSetFeedback(stats, exercise.label, isHold(exercise.id), holdTarget, hasSpecificRules(exercise.id)), [exercise, stats, holdTarget]);
   const actions = useTrainingActions(
     getActionInputs(camera, exercise, voice, demoMode, sessionActive, setDemoMode, setSessionActive, resetStats),
   );
@@ -180,14 +196,17 @@ function useTrainingController(): TrainingController {
   usePreferredVoice(selectedVoiceURI, voiceOptions.preferredVoiceURI, setSelectedVoiceURI);
 
   return {
-    analysis,
+    analysis: demoMode || pose.status === "running" ? analysis : null,
+    devices: camera.devices, deviceId: camera.stream?.getVideoTracks()[0]?.getSettings().deviceId ?? "",
+    onDeviceChange: id => { actions.onReset(); void camera.startCamera(id); },
+    holdTarget, onHoldTarget: seconds => { actions.onReset(); setHoldTarget(seconds); },
     cameraError: camera.error,
     cameraStatus: camera.status,
     cameraZoom: camera.zoom,
     demoMode,
     exercise,
     landmarks,
-    poseStatus: getPoseStatus(pose.status),
+    poseStatus: pose.error ? "Model niet beschikbaar" : getPoseStatus(pose.status),
     selectedExerciseId,
     selectedVoiceURI,
     setFeedback,
@@ -203,15 +222,21 @@ function useTrainingController(): TrainingController {
       void camera.setZoom(value);
     },
     onExerciseChange: (exerciseId) => {
+      actions.onReset();
+      setDemoMode(false);
       setSelectedExerciseId(exerciseId);
-      resetStats();
     },
     onPlaySetFeedback: () => voice.speakCue("set-feedback", setFeedback.voiceText, true),
     onTestVoice: () => voice.speakCue("voice-test", "Dit is de gekozen VormCoach stem.", true),
-    onToggleVoice: () => setVoiceEnabled((current) => !current),
+    onToggleVoice: () => { voice.stop(); setVoiceEnabled((current) => !current); },
     onToggleVideoFit: () => setVideoFitMode((current) => (current === "cover" ? "contain" : "cover")),
     onVoiceChange: setSelectedVoiceURI,
     ...actions,
+    onStopCamera: () => { actions.onReset(); camera.stopCamera(); },
+    onToggleDemo: () => {
+      if (!demoMode) { camera.stopCamera(); setSelectedExerciseId("squat"); }
+      actions.onToggleDemo();
+    },
   };
 }
 
@@ -247,7 +272,7 @@ function getActionInputs(
 function useTrainingActions(inputs: ReturnType<typeof getActionInputs>) {
   const onStart = useCallback(async () => {
     if (!inputs.sessionActive && !inputs.demoMode && inputs.camera.status !== "ready") {
-      await inputs.camera.startCamera();
+      if (!await inputs.camera.startCamera()) return;
     }
 
     const nextActive = !inputs.sessionActive;
@@ -259,6 +284,7 @@ function useTrainingActions(inputs: ReturnType<typeof getActionInputs>) {
   }, [inputs]);
 
   const onReset = useCallback(() => {
+    if (inputs.camera.status === "requesting") inputs.camera.stopCamera();
     inputs.setSessionActive(false);
     inputs.resetStats();
     inputs.voice.stop();
@@ -279,16 +305,6 @@ function useTrainingActions(inputs: ReturnType<typeof getActionInputs>) {
     onReset,
     onToggleDemo,
   };
-}
-
-function useCurrentAnalysis(exerciseId: ExerciseId, landmarks: NormalizedLandmark[]): PoseAnalysis | null {
-  return useMemo(() => {
-    if (landmarks.length === 0) {
-      return null;
-    }
-
-    return analyzePose(exerciseId, landmarks);
-  }, [exerciseId, landmarks]);
 }
 
 function usePreferredVoice(
@@ -314,8 +330,13 @@ function useDemoPoseLoop(
     }
 
     let frameId = 0;
+    const start = performance.now();
+    let last = -Infinity;
     const loop = (time: number): void => {
-      setDemoLandmarks(createDemoLandmarks(time));
+      if (time - last >= 65) {
+        setDemoLandmarks(createDemoLandmarks(time - start));
+        last = time;
+      }
       frameId = window.requestAnimationFrame(loop);
     };
 

@@ -64,6 +64,11 @@ export interface RepSignal {
 }
 
 export interface PoseAnalysis {
+  framingHint?: string;
+  assessable?: boolean;
+  holding?: boolean;
+  endpointKey?: CorrectionKey;
+  inverted?: boolean;
   exerciseId: ExerciseId;
   level: FeedbackLevel;
   score: number;
@@ -78,25 +83,15 @@ export interface PoseAnalysis {
 export interface SessionStats {
   startedAt: number | null;
   elapsedSeconds: number;
-  frames: number;
-  alignedFrames: number;
   reps: number;
-  correctionCounts: Record<CorrectionKey, number>;
+  heldSeconds: number;
+  review: { units: number; assessed: number; tips: Correction[] } | null;
 }
 
 export const EMPTY_STATS: SessionStats = {
   startedAt: null,
   elapsedSeconds: 0,
-  frames: 0,
-  alignedFrames: 0,
   reps: 0,
-  correctionCounts: {
-    "back-neutral": 0,
-    "knees-track": 0,
-    "tempo-calm": 0,
-    "hip-line": 0,
-    "shoulder-stack": 0,
-    depth: 0,
-    camera: 0,
-  },
+  heldSeconds: 0,
+  review: null,
 };

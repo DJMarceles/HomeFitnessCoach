@@ -23,11 +23,11 @@ export function ControlBar(props: ControlBarProps) {
       <div className="control-actions">
         <button className="icon-button" onClick={props.onToggleVoice} title="Stem aan" type="button">
           <VoiceIcon size={18} aria-hidden="true" />
-          <span>Stem aan</span>
+          <span>{props.voiceEnabled ? "Stem aan" : "Stem uit"}</span>
         </button>
         <button className={props.demoMode ? "icon-button is-active" : "icon-button"} onClick={props.onToggleDemo} type="button">
           <Video size={18} aria-hidden="true" />
-          <span>Demo</span>
+          <span>Squatdemo</span>
         </button>
         <button className="icon-button" onClick={props.onReset} title="Reset sessie" type="button">
           <RotateCcw size={18} aria-hidden="true" />

@@ -1,13 +1,12 @@
-import { Activity, Camera, Gauge, MapPinned, PlayCircle, Volume2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { Camera, MapPinned, PlayCircle, Volume2 } from "lucide-react";
 import type { ExerciseConfig } from "../data/exercises";
-import type { PoseAnalysis } from "../lib/pose/poseTypes";
 import type { SetFeedback } from "../lib/pose/setFeedback";
 import type { VoiceOption } from "../lib/voice/useVoiceOptions";
-import { StatusPill } from "./StatusPill";
+import { hasSpecificRules, isHold, isPilot } from "../lib/pose/pilot";
 
 interface AnalysisPanelProps {
-  analysis: PoseAnalysis | null;
+  holdTarget: number;
+  onHoldTarget: (seconds: number) => void;
   exercise: ExerciseConfig;
   selectedVoiceURI: string;
   setFeedback: SetFeedback;
@@ -20,20 +19,19 @@ interface AnalysisPanelProps {
 }
 
 export function AnalysisPanel(props: AnalysisPanelProps) {
-  const { analysis, exercise } = props;
+  const { exercise } = props;
 
   return (
     <aside className="analysis-panel" aria-label="Analyse">
-      <PanelHeader analysis={analysis} exercise={exercise} />
-      <CameraPlacementCard exercise={exercise} />
-      <MetricGrid analysis={analysis} />
+      <PanelHeader exercise={exercise} />
       <SetFeedbackCard {...props} />
+      <CameraPlacementCard exercise={exercise} />
       <VoiceSettings {...props} />
     </aside>
   );
 }
 
-function PanelHeader({ analysis, exercise }: Pick<AnalysisPanelProps, "analysis" | "exercise">) {
+function PanelHeader({ exercise }: Pick<AnalysisPanelProps, "exercise">) {
   return (
     <div className="panel-block">
       <div className="panel-title-row">
@@ -41,9 +39,8 @@ function PanelHeader({ analysis, exercise }: Pick<AnalysisPanelProps, "analysis"
           <p className="section-label">Analyse</p>
           <h2>{exercise.label}</h2>
         </div>
-        <StatusPill level={analysis?.level ?? "idle"} />
       </div>
-      <p className="panel-copy">{exercise.focus}</p>
+      <p className="panel-copy">{isPilot(exercise.id) ? "Pilot · praktijktoets volgt" : hasSpecificRules(exercise.id) ? "Proefversie · praktijktoets volgt" : "Experimentele telling · geen houdingsbeoordeling"}</p>
     </div>
   );
 }
@@ -77,30 +74,6 @@ function CameraPlacementCard({ exercise }: Pick<AnalysisPanelProps, "exercise">)
   );
 }
 
-function MetricGrid({ analysis }: Pick<AnalysisPanelProps, "analysis">) {
-  const metrics = Object.entries(analysis?.metrics ?? {}).slice(0, 4);
-
-  return (
-    <div className="metric-grid">
-      <MetricCard icon={<Gauge size={18} />} label="Houding-score" value={`${analysis?.score ?? 0}%`} />
-      <MetricCard icon={<Activity size={18} />} label="Confidence" value={`${Math.round((analysis?.confidence ?? 0) * 100)}%`} />
-      {metrics.map(([label, value]) => (
-        <MetricCard key={label} icon={<Activity size={18} />} label={label} value={String(value)} />
-      ))}
-    </div>
-  );
-}
-
-function MetricCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="metric-card">
-      <span aria-hidden="true">{icon}</span>
-      <small>{label}</small>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
 function SetFeedbackCard(props: AnalysisPanelProps) {
   const feedback = props.setFeedback;
 
@@ -118,29 +91,22 @@ function SetFeedbackCard(props: AnalysisPanelProps) {
           Speel af
         </button>
       </div>
+      {isHold(props.exercise.id) && <label className="hold-target">Houdtijd
+        <select value={props.holdTarget} onChange={e => props.onHoldTarget(Number(e.target.value))}>
+          {[10,20,30,45,60].map(s => <option key={s} value={s}>{s} seconden</option>)}
+        </select></label>}
       <div className="set-progress" aria-label="Voortgang setanalyse">
         <span style={{ width: `${feedback.progress * 100}%` }} />
       </div>
       <strong>{feedback.title}</strong>
       <p>{feedback.summary}</p>
       <div className="tip-list">
-        {feedback.ready ? (
-          feedback.tips.map((tip) => (
+        {feedback.tips.map((tip) => (
             <article className="tip-card" key={tip.key}>
               <strong>{tip.title}</strong>
               <p>{tip.detail}</p>
             </article>
-          ))
-        ) : (
-          <article className="tip-card is-muted">
-            <strong>{feedback.waitingForStart ? "Rep-teller staat klaar" : "Nog geen tussentijdse coaching"}</strong>
-            <p>
-              {feedback.waitingForStart
-                ? "Begin met bewegen. De teller start automatisch bij de eerste herhaling."
-                : "Maak eerst minimaal 8 geldige herhalingen. Daarna krijg je de tips in een keer."}
-            </p>
-          </article>
-        )}
+          ))}
       </div>
     </div>
   );
